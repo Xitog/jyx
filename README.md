@@ -1,2 +1,2 @@
-# jyx
-A simple text editor for developer in Python/Tkinter
+# Jyx
+A simple text editor for developers in Python/Tkinter
