@@ -10,27 +10,15 @@ from tkinter import messagebox
 from tkinter import filedialog
 from tkinter import font
 
-import json # for loading/saving options
+import json                   # for loading/saving options
 from datetime import datetime # for now()
-import os # for getcwd()
-import os.path # for basename()
-from enum import Enum
-import subprocess # for run
-import stat # for run
-import re
-from typing import Dict # not used
-import platform # just for knowing where we are in handling of ctrl
-
-# Tokenizer
-import sys
-sys.coinit_flags = 2 
-try:
-    sys.path.append('../../projets/ash')
-    from ashlang import Tokenizer, Token
-except ModuleNotFoundError:
-    ASH_TOKENIZER = False
-else:
-    ASH_TOKENIZER = True
+import os                     # for getcwd()
+import os.path                # for basename()
+from enum import Enum         # for our Logger
+import subprocess             # for run
+import stat                   # for run
+import platform               # for knowing where we are in handling of ctrl
+from collections import deque # for parsing
 
 #
 # Globals and constants
@@ -166,12 +154,13 @@ class Jyx:
     TITLE = 'Jyx'
     RUN_COMMAND = 6
     CLOSE_TAB = 8
-    CONFIG_FILE_NAME = 'jyx.json'
+    DATA_FILE_NAME = 'jyx.json'
     LAST_VALUES = 'last_values.json'
     VERSION = '0.0.1'
     
     def __init__(self):
-        self.log = Logger(exit_on_error=False, info=Output.CONSOLE, warn=Output.POPUP, error=Output.POPUP)
+        self.log = Logger(exit_on_error=False, info=Output.CONSOLE, 
+                          warn=Output.POPUP, error=Output.POPUP)
         # Path
         home = os.path.expanduser("~")
         self.jyx_dir = os.path.join(home, '.jyx')
@@ -179,19 +168,26 @@ class Jyx:
             os.mkdir(self.jyx_dir)
         # Load base data (in same dir than jyx.py or we create one in jyx_dir)
         try:
-            f = open(Jyx.CONFIG_FILE_NAME, 'r', encoding='utf8')
+            f = open(os.path.join(os.path.dirname(os.path.realpath(__file__)), Jyx.DATA_FILE_NAME), 'r', encoding='utf8')
+            self.log.info('Data file for options found in:')
+            self.log.info(os.path.join(os.path.dirname(os.path.realpath(__file__)), Jyx.DATA_FILE_NAME))
         except FileNotFoundError:
             try:
-                f = open(os.path.join(self.jyx_dir, Jyx.CONFIG_FILE_NAME), 'r', encoding='utf8')
+                f = open(os.path.join(self.jyx_dir, Jyx.DATA_FILE_NAME), 'r', encoding='utf8')
+                self.log.info('Data file for options found in:')
+                self.log.info(os.path.join(self.jyx_dir, Jyx.DATA_FILE_NAME))
             except FileNotFoundError:
-                f = open(os.path.join(self.jyx_dir, Jyx.CONFIG_FILE_NAME), 'w', encoding='utf8')
+                f = open(os.path.join(self.jyx_dir, Jyx.DATA_FILE_NAME), 'w', encoding='utf8')
                 f.write(DEFAULT_CONFIG)
                 f.close()
-                f = open(os.path.join(self.jyx_dir, Jyx.CONFIG_FILE_NAME), 'r', encoding='utf8')
+                self.log.info('No data file found. Writing default in:')
+                self.log.info(os.path.join(self.jyx_dir, Jyx.DATA_FILE_NAME))
+                f = open(os.path.join(self.jyx_dir, Jyx.DATA_FILE_NAME), 'r', encoding='utf8')
         self.data = json.load(f)
         f.close()
         # Init
-        self.root = tk.Tk()
+        self.root = tk.Tk(className=Jyx.TITLE)
+        self.root.title(Jyx.TITLE)
         self.root.protocol('WM_DELETE_WINDOW', self.exit)
         self.root.minsize(width=800, height=600)
         icon = self.load_icon('polar-star.png')
@@ -204,7 +200,8 @@ class Jyx:
         # Options
         try:
             file = open(os.path.join(self.jyx_dir, Jyx.LAST_VALUES), mode='r')
-            self.log.info('Last values file for options found.')
+            self.log.info('Last values file for options found in:')
+            self.log.info(os.path.join(self.jyx_dir, Jyx.LAST_VALUES))
             last_values = json.load(file)         
             file.close()
         except:
@@ -220,8 +217,8 @@ class Jyx:
             self.options['tongue'].var.set('en')
             self.update('tongue', init=True)
         # UI components
-        self.notebook = JyxNotebook(self)
         self.treeview = JyxTree(self)
+        self.notebook = JyxNotebook(self)
         # Prend tout Y (relheight = 1.0), se positionne à 0.2 pour le notebook
         self.treeview.place(relx=0.0, rely =0.0, relwidth =0.2, relheight =1.0)
         self.notebook.place(relx=0.2, rely =0.0, relwidth =0.8, relheight =1.0)
@@ -350,7 +347,7 @@ class Jyx:
         if self.notebook.get_filepath() is None:
             self.save_as(event)
         else:
-            self.note.save()
+            self.notebook.current().save()
 
     def save_as(self, event=None):
         tongue = self.options['tongue'].get()
@@ -368,7 +365,8 @@ class Jyx:
         options['title'] = self.data['messages'][tongue]['save file']
         filename = filedialog.asksaveasfilename(**options) # mode='w',
         if type(filename) == str and len(filename) > 0:
-            self.notebook.save(filename)
+            print('save_as', filename)
+            self.notebook.current().save(filename)
 
     def open(self, event=None):
         tongue = self.options['tongue'].get()
@@ -376,7 +374,10 @@ class Jyx:
         options = {}
         #options['defaultextension'] = '.txt'
         options['filetypes'] = [(self.data['messages'][tongue]['filter all'], '.*')]
-        options['initialdir'] = os.getcwd()
+        if self.notebook.get_filepath() is None:
+            options['initialdir'] = os.getcwd()
+        else:
+            options['initialdir'] = os.path.dirname(self.notebook.get_filepath())
         options['initialfile'] = self.data['messages'][tongue]['file name'] + self.data['languages'][lang]['extension'][0]
         options['parent'] = self.root
         options['title'] = self.data['messages'][tongue]['open file']
@@ -387,13 +388,32 @@ class Jyx:
             try:
                 content = f.read()
             except UnicodeDecodeError as ude:
-                log.error("[ERROR] Encoding error: unable to open file: " + filename)
+                self.log.error('Encoding error: unable to open file: ' + filename)
                 print(ude)
+                return
             finally:
                 f.close()
-            if content is not None:
+            if content is None:
+                self.log.error('Impossible to open ' + filename + ' nothing to read.')
+                return
+            already = False
+            num = 0
+            cpt = 0
+            # Check if already open
+            for n in self.notebook:
+                msg = n.filepath if n.filepath is not None else 'buffer'
+                print('Opened file:', msg)
+                if n.filepath == filename:
+                    already = True
+                    num = cpt
+                cpt += 1
+            if not already:
+                self.log.info('Opening: ' + filename)
                 self.notebook.open(filename, content)
                 self.treeview.rebuild()
+            else:
+                self.log.info('Alreay opened, selecting: ' + str(num))
+                self.notebook.select(num)
 
     def run(self, event=None):
         lang = self.notebook.current().lang
@@ -488,37 +508,50 @@ class JyxMenu(tk.Menu):
         
         self.file_menu = tk.Menu(self, tearoff=0)
         self.add_cascade(label=data['menu'][tongue]['file'], menu=self.file_menu)
-        self.file_menu.add_command(label=data['menu'][tongue]['new'], command=self.jyx.new,
+        self.file_menu.add_command(label=data['menu'][tongue]['new'],
+                                   command=self.jyx.new,
                                    accelerator="Ctrl+N")
-        self.file_menu.add_command(label=data['menu'][tongue]['open'], command=self.jyx.open,
+        self.file_menu.add_command(label=data['menu'][tongue]['open'],
+                                   command=self.jyx.open,
                                    accelerator="Ctrl+O")
-        self.file_menu.add_command(label=data['menu'][tongue]['save'], command=self.jyx.save,
+        self.file_menu.add_command(label=data['menu'][tongue]['save'],
+                                   command=self.jyx.save,
                                    accelerator="Ctrl+S")
-        self.file_menu.add_command(label=data['menu'][tongue]['save as'], command=self.jyx.save_as,
+        self.file_menu.add_command(label=data['menu'][tongue]['save as'],
+                                   command=self.jyx.save_as,
                                    accelerator="Ctrl+Shift+S")
-        self.file_menu.add_command(label=data['menu'][tongue]['save all'], command=self.jyx.save,
+        self.file_menu.add_command(label=data['menu'][tongue]['save all'],
+                                   command=self.jyx.save,
                                    accelerator="Ctrl+Alt+S")
         self.file_menu.add_separator()
-        self.file_menu.add_command(label=data['menu'][tongue]['run'], command=self.jyx.run,
+        self.file_menu.add_command(label=data['menu'][tongue]['run'],
+                                   command=self.jyx.run,
                                    accelerator="F5")
         self.file_menu.add_separator()
-        self.file_menu.add_command(label=data['menu'][tongue]['close tab'], command=self.jyx.notebook.close_tab,
+        self.file_menu.add_command(label=data['menu'][tongue]['close tab'],
+                                   command=self.jyx.notebook.close_tab,
                                    accelerator="Ctrl+X", state=tk.DISABLED)
-        self.file_menu.add_command(label=data['menu'][tongue]['exit'], command=self.jyx.exit,
+        self.file_menu.add_command(label=data['menu'][tongue]['exit'],
+                                   command=self.jyx.exit,
                                    accelerator="Ctrl+Q")
 
         self.edit_menu = tk.Menu(self, tearoff=0)
         self.add_cascade(label=data['menu'][tongue]['edit'], menu=self.edit_menu)
-        self.edit_menu.add_command(label=data['menu'][tongue]['undo'], command=lambda: self.jyx.notebook.send('undo'),
+        self.edit_menu.add_command(label=data['menu'][tongue]['undo'],
+                                   command=lambda: self.jyx.notebook.send('undo'),
                                    accelerator="Ctrl+Z")
-        self.edit_menu.add_command(label=data['menu'][tongue]['redo'], command=lambda: self.jyx.notebook.send('redo'),
+        self.edit_menu.add_command(label=data['menu'][tongue]['redo'],
+                                   command=lambda: self.jyx.notebook.send('redo'),
                                    accelerator="Ctrl+Y")
         self.edit_menu.add_separator()
-        self.edit_menu.add_command(label=data['menu'][tongue]['cut'], command=lambda: self.jyx.notebook.send('cut'),
+        self.edit_menu.add_command(label=data['menu'][tongue]['cut'],
+                                   command=lambda: self.jyx.notebook.send('cut'),
                                    accelerator="Ctrl+X")
-        self.edit_menu.add_command(label=data['menu'][tongue]['copy'], command=lambda: self.jyx.notebook.send('copy'),
+        self.edit_menu.add_command(label=data['menu'][tongue]['copy'],
+                                   command=lambda: self.jyx.notebook.send('copy'),
                                    accelerator="Ctrl+C")
-        self.edit_menu.add_command(label=data['menu'][tongue]['paste'], command=lambda: self.jyx.notebook.send('paste'),
+        self.edit_menu.add_command(label=data['menu'][tongue]['paste'],
+                                   command=lambda: self.jyx.notebook.send('paste'),
                                    accelerator="Ctrl+V")
         self.edit_menu.add_command(label=data['menu'][tongue]['select all'],
                                    command=lambda: self.jyx.notebook.send('select all'),
@@ -537,13 +570,16 @@ class JyxMenu(tk.Menu):
                                             variable=self.jyx.options['tongue'].var,
                                             value=tong,
                                             command=lambda: self.jyx.update('tongue'))
-        self.options_menu.add_checkbutton(label=data['menu'][tongue]['confirm'], onvalue=True, offvalue=False,
+        self.options_menu.add_checkbutton(label=data['menu'][tongue]['confirm'],
+                                          onvalue=True, offvalue=False,
                                           variable=self.jyx.options['confirm'].var,
                                           command=lambda: self.jyx.update('confirm'))
-        self.options_menu.add_checkbutton(label=data['menu'][tongue]['basename'], onvalue=True, offvalue=False,
+        self.options_menu.add_checkbutton(label=data['menu'][tongue]['basename'],
+                                          onvalue=True, offvalue=False,
                                           variable=self.jyx.options['basename'].var,
                                           command=lambda: self.jyx.update('basename'))
-        self.options_menu.add_checkbutton(label=data['menu'][tongue]['treeview'], onvalue=True, offvalue=False,
+        self.options_menu.add_checkbutton(label=data['menu'][tongue]['treeview'],
+                                          onvalue=True, offvalue=False,
                                           variable=self.jyx.options['treeview'].var,
                                           command=lambda: self.jyx.update('treeview'))
         
@@ -590,48 +626,57 @@ class JyxTree(ttk.Treeview):
     def __init__(self, jyx):
         ttk.Treeview.__init__(self, jyx.get_root())
         self.jyx = jyx
+        self.links = {}
+        self.bind('<Button-1>', self.selection)
+
+    def selection(self, event):
+        current = self.identify('item', event.x, event.y)
+        if current not in self.links: # prevent when clicking on top bar of the tree
+            return
+        at = self.links[current].at
+        #print('Node :', self.links[current], '@', at)
+        self.jyx.notebook.current().text.see("1.0+%d chars" % (at,))
+        #print('Node:', self.links[current])
+        #print(self.item(current))
+
+    def explore(self, parent, counter, node):
+        counter += 1
+        identifier = f"Item_{counter}"
+        self.insert(parent, counter, identifier, text=str(node))
+        self.links[identifier] = node
+        for n in node.get_children():
+            counter = self.explore(identifier, counter, n)
+        return counter
 
     def rebuild(self):
         self.delete(*self.get_children())
-        if self.jyx.notebook.current().lang == 'json':
-            try:
-                text = self.jyx.notebook.current().text.get('1.0', tk.END)
-                obj = json.loads(text)
-                #print(obj)
+        self.links = {}
+        try:
+            lang = self.jyx.notebook.current().lang
+            text = self.jyx.notebook.current().text.get('1.0', tk.END)
+            if lang in PARSERS:
+                ast = PARSERS[lang]().parse(text)
                 self.column("#0", stretch=True)
                 self.heading("#0", text="Element", anchor="w")
-                def explore(parent, counter, obj, k=None):
-                    counter += 1
-                    typ = type(obj)
-                    if typ == bool:
-                        msg = 'true' if obj else 'false'
-                    elif typ in [int, float]:
-                        msg = str(obj)
-                    elif typ == str:
-                        msg = obj
-                    elif typ == list:
-                        msg = "[]"
-                    elif typ == dict:
-                        msg = "{}"
-                    else:
-                        raise Exception(f"Type not known: {typ}")
-                    identifier = f"Item_{counter}"
-                    if k is not None:
-                        msg = f"{k} : {msg}"
-                    #print('Inserting:', identifier, msg)
-                    self.insert(parent, counter, identifier, text=msg)
-                    if typ == list:
-                        for k, v in enumerate(obj):
-                            counter = explore(identifier, counter, v, k)
-                    elif typ == dict:
-                        for k, v in obj.items():
-                            counter = explore(identifier, counter, v, k)
-                    return counter
-                explore("", 0, obj)
-            except ValueError as e:
-                print(e)
+                self.explore("", 0, ast)
+        except ValueError as e:
+            print('Error on parsing:', e)
 
-    
+
+class JyxNotebookIterator:
+
+    def __init__(self, parent):
+        self.cpt = -1
+        self.parent = parent
+
+    def __next__(self):
+        self.cpt += 1
+        if self.cpt < self.parent.index(tk.END):
+            return self.parent.notes[self.cpt]
+        else:
+            raise StopIteration
+
+
 class JyxNotebook(ttk.Notebook):
 
     def __init__(self, jyx):
@@ -643,17 +688,22 @@ class JyxNotebook(ttk.Notebook):
         self.grid_columnconfigure(0, weight=1)
 
         self.notes = []
-        self.new_tab(init=True)
+        self.is_loading_file = True # for the first time, to desactivate jyx#update
+        self.new_tab()
         self.pack(fill=tk.BOTH, expand=tk.YES)
         self.bind('<<NotebookTabChanged>>', self.on_tab_change)
         self.current().focus()
+        self.is_loading_file = False
+
+    def __iter__(self):
+        return JyxNotebookIterator(self)
 
     def relabel(self, new):
         for i in range(self.index('end')):
             if self.notes[i].filepath is None:
                 self.notes[i].update_title()
 
-    def new_tab(self, lang=None, init=False):
+    def new_tab(self, event=None, lang=None):
         if lang is None: lang = self.jyx.data['default_language']
         jn = JyxNote(self, lang)
         self.add(jn.frame, text=self.jyx.data['menu'][self.jyx.options['tongue'].get()]['new'])
@@ -663,19 +713,23 @@ class JyxNotebook(ttk.Notebook):
         jn.focus()
         if self.index("end") > 1:
             self.jyx.menu.file_menu.entryconfig(Jyx.CLOSE_TAB, state=tk.ACTIVE)
-        self.jyx.update(init=init)
+        if not self.is_loading_file:
+            self.jyx.update()
         return jn.index
 
     def close_tab(self):
+        del self.notes[self.index("current")]
         self.forget(self.index("current"))
         if self.index("end") == 1:
             self.jyx.menu.file_menu.entryconfig(Jyx.CLOSE_TAB, state=tk.DISABLED)
         self.jyx.update()
 
     def on_tab_change(self, event):
+        if self.is_loading_file:
+            return
         self.jyx.options['language'].var.set(self.current().lang)
         self.jyx.update()
-        
+
     def current(self):
         return self.notes[self.index("current")]
 
@@ -701,6 +755,7 @@ class JyxNotebook(ttk.Notebook):
         return self.current().filepath
 
     def open(self, filename, content):
+        self.is_loading_file = True
         _, ext = os.path.splitext(filename)
         lang = self.jyx.data['default_language']
         for key, lg in self.jyx.data['languages'].items():
@@ -708,11 +763,12 @@ class JyxNotebook(ttk.Notebook):
                 lang = key
                 break
         if self.current().dirty or self.current().filepath is not None or len(self) > 1:
-            self.new_tab(lang)
+            self.new_tab(lang=lang)
         else:
             self.current().change_lang(lang)
         self.jyx.options['language'].var.set(lang)
         self.current().load(filename, content)
+        self.is_loading_file = False
 
     def send(self, order):
         if order == 'cut':
@@ -763,7 +819,18 @@ class JyxNote:
         self.text.bind('<KeyPress>', self.update_text_before)
         #self.text.bind('<KeyRelease>', self.update_text_after)
         self.text.bind('<ButtonRelease-1>', self.notebook.jyx.update_status)
-
+        if platform.system() == 'Windows':
+            self.text.bind('<Control-Key-a>', self.select_all)
+            self.text.bind('<Control-Key-n>', self.notebook.new_tab)
+            self.text.bind('<Control-Key-t>', self.notebook.new_tab)
+            self.text.bind('<Control-Key-z>', self.undo)
+            self.text.bind('<Control-Key-y>', self.redo)
+            self.text.bind('<Control-Key-c>', self.copy)
+            self.text.bind('<Control-Key-x>', self.cut)
+            self.text.bind('<Control-Key-v>', self.paste)
+            self.text.bind('<Control-Key-p>', self.notebook.jyx.treeview.rebuild)
+            self.text.bind('<Control-Key-s>', self.notebook.jyx.save)
+    
         self.filepath = None
         self.dirty = False
         self.lang = lang
@@ -810,10 +877,11 @@ class JyxNote:
     # Handling of state and deleting, writing, loading and saving
     #
     def save(self, filename=None, raw=False):
+        filename = filename if filename is not None else self.filepath
         if filename is None:
-            filename = self.get_filepath()
+            raise Exception("Impossible to save, no file name specified.")
         f = open(filename, mode='w', encoding='utf8')
-        content = self.text.get(1.0, tk.END)
+        content = self.text.get('1.0', tk.END)
         f.write(content)
         f.close()
         if not raw: # skip updating the state if it is a "raw" save for executing file without to have to save it first
@@ -822,7 +890,7 @@ class JyxNote:
             self.update_title()
     
     def load(self, filename, content):
-        self.clear()
+        self.text.delete('1.0', tk.END)
         self.text.insert('1.0', content)
         self.text.edit_reset()
         self.dirty = False
@@ -886,6 +954,8 @@ class JyxNote:
     #
     def paste(self, event=None):
         content = self.notebook.jyx.root.clipboard_get()
+        if self.has_selection():
+            self.selection_delete()
         self.text.insert(tk.INSERT, content)
         self.text.see(tk.INSERT)
         return 'break'
@@ -927,17 +997,21 @@ class JyxNote:
     #
     def update_text_before(self, event):
         text = event.widget
-        print(f'{event.state:08b} {platform.system()}')
+        #print(f'{event.state:08b} {platform.system()}')
         if self.control_pressed(event.state):
-            print(f'ctrl {event.state:08b} {platform.system()}')
+            pass
+            #print(f'ctrl {event.state:08b} {platform.system()}')
         if self.alt_right_pressed(event.state):
-            print(f'alt right {event.state:08b} {platform.system()}')
+            pass
+            #print(f'alt right {event.state:08b} {platform.system()}')
         if self.alt_left_pressed(event.state):
-            print(f'alt left {event.state:08b} {platform.system()}')
+            pass
+            #print(f'alt left {event.state:08b} {platform.system()}')
         if JyxNote.MOD_CAPS_LOCK & event.state:
-            print(f'caps lock')
+            pass
+            #print(f'caps lock')
         if self.control_pressed(event.state):
-            print('update_text_before:', event.keysym)
+            #print('update_text_before:', event.keysym)
             if event.keysym == 'a':
                 self.select_all()
             elif event.keysym in ['n', 't']:
@@ -954,9 +1028,10 @@ class JyxNote:
                 self.paste()
             elif event.keysym == 'p':
                 self.notebook.jyx.treeview.rebuild()
+            elif event.keysym == 's':
+                self.notebook.jyx.save()
             else:
                 self.notebook.jyx.log.info(f'Event not handled: {event.keysym} with state={event.state}')
-                return 'break'
             return 'break'
         elif event.keysym == 'Control_L':
             return 'break'
@@ -991,12 +1066,21 @@ class JyxNote:
         elif event.keysym == 'Delete':
             if len(text.tag_ranges('sel')) > 0:
                 self.selection_delete()
+            elif text.index(tk.END) != text.index(tk.INSERT):
+                self.delete(tk.INSERT)
             self.notebook.jyx.update_status()
             return 'break'
         elif event.keysym == 'Escape':
             self.selection_clear()
             self.notebook.jyx.update_status()
             return 'break'
+        elif event.keysym == 'Return':
+            line = self.text.get('insert linestart', 'insert lineend')
+            decal = len(line) - len(line.lstrip())
+            if decal > 0:
+                content = '\n' + ' ' * decal
+            else:
+                content = '\n'
         elif event.char == '\r':
             content = '\n'
         elif event.char == '\t':
@@ -1041,7 +1125,7 @@ class JyxNote:
         content = self.text.get(start, end)
         res = LEXERS[self.lang]().lex(content)
         for t in res:
-            t_start = self.text.index("%s+%d chars" % (start, t.column))
+            t_start = self.text.index("%s+%d chars" % (start, t.index))
             t_end = self.text.index("%s+%d chars" % (start, t.end))
             self.text.tag_add(t.kind, t_start, t_end)
 
@@ -1052,29 +1136,215 @@ class ParserJSON:
     def __init__(self):
         pass
 
-    def parse(self, tokens):
-        pass
+    def parse(self, content):
+        tokens = LexerJSON().lex(content, ['newline'])
+        return self.read(deque(tokens))
+
+    def read(self, tokens):
+        #print('read', tokens[0], len(tokens))
+        if len(tokens) == 0:
+            print(tokens)
+            raise Exception("No token")
+        token = tokens[0]
+        if token.kind == 'separator' and token.value == '{':
+            return self.read_object(tokens)
+        elif token.kind == 'separator' and token.value == '[':
+            return self.read_array(tokens)
+        else:
+            return self.read_terminal(tokens)
+
+    def read_object(self, tokens):
+        #print('read_object', tokens[0], len(tokens))
+        at = tokens[0].index
+        tokens.popleft()
+        elements = self.read_keyvalue(tokens)
+        return ListNode(at, elements, '{}')
+
+    def read_keyvalue(self, tokens):
+        #print('read_keyvalue', tokens[0], len(tokens))
+        if len(tokens) == 0:
+            raise Exception('Malformed object literal: unfinished')
+        token = tokens[0]
+        if token.kind == 'separator' and token.value == '}':
+            tokens.popleft()
+            return []
+        elif token.kind == 'separator' and token.value == ',':
+            tokens.popleft()
+            token = tokens[0]
+        if token.kind != 'key':
+            raise Exception('Malformed object literal on token: ' + str(token) + ' -> not a key')
+        if len(tokens) < 2:
+                raise Exception('Malformed object literal on token: ' + str(token) + ' -> key without :')
+        if len(tokens) < 3:
+                raise Exception('Malformed object literal on token: ' + str(token) + ' -> key without value')
+        tokens.popleft()
+        tokens.popleft()
+        n = KeyValueElementNode(token.index, token.value, self.read(tokens))
+        return [n] + self.read_keyvalue(tokens)
+
+    def read_array(self, tokens):
+        #print('read_array', tokens[0], len(tokens))
+        at = tokens[0].index
+        tokens.popleft()
+        elements = self.read_item(tokens)
+        return ListNode(at, elements, '[]')
+
+    def read_item(self, tokens):
+        #print('read_item', tokens[0], len(tokens))
+        if len(tokens) == 0:
+            raise Exception('Malformed array literal: unfinished')
+        token = tokens[0]
+        if token.kind == 'separator' and token.value == ']':
+            tokens.popleft()
+            return []
+        elif token.kind == 'separator' and token.value == ',':
+            tokens.popleft()
+        n = self.read(tokens)
+        return [n] + self.read_item(tokens)
+
+    def read_terminal(self, tokens):
+        #print('read_terminal', tokens[0], len(tokens))
+        token = tokens[0]
+        tokens.popleft()
+        if token.kind == 'string':
+            return LiteralNode(token.index, token.kind, token.value)
+        elif token.kind == 'number':
+            return LiteralNode(token.index, token.kind, token.value)
+        elif token.kind == 'boolean':
+            return LiteralNode(token.index, token.kind, token.value)
+        else:
+            raise Exception("Kind not known: " + str(token.kind))   
+
+
+class NodeIterator:
+
+    def __init__(self, obj):
+        self.obj = obj
+        self.count = -1
+
+    def __next__(self):
+        self.count += 1
+        if self.count >= len(self.obj.children):
+            raise StopIteration
+        return self.obj.children[self.count]
+
+
+class Node:
+
+    def __init__(self, msg, at):
+        self.msg = msg
+        self.at = at
+
+    def __repr__(self):
+        return self.msg
+
+    def __str__(self):
+        return self.msg
+
+    def __iter__(self):
+        return NodeIterator(self)
+
+    def explore(self, lvl=0):
+        print(f"{'    ' * lvl}{self.msg}")
+
+    def get_children(self):
+        return []
+
+
+class IfNode(Node):
+
+    def __init__(self, at, condition, if_true, if_false):
+        Node.__init__(self, 'if', at)
+        self.condition = condition
+        self.if_true = if_true
+        self.if_false = if_false
+        self.at = at
+
+
+class WhileNode(Node):
+
+    def __init__(self, at, condition, action):
+        Node.__init__(self, 'while', at)
+        self.condition = condition
+        self.action = action
+        self.at = at
+
+
+class LiteralNode(Node):
+
+    def __init__(self, at, kind, value):
+        Node.__init__(self, f'{value} : {kind}', at)
+        self.kind = kind
+        self.value = value
+        self.at = at
+
+
+class ListNode(Node):
+
+    def __init__(self, at, elements, kind=None):
+        if kind is not None:
+            msg = kind
+        elif len(elements) > 0 and type(elements[0]) == KeyValueElementNode:
+            msg = 'dict'
+        else:
+            msg = 'list'
+        Node.__init__(self, msg, at)
+        self.children = elements
+
+    def explore(self, lvl=0):
+        Node.explore(self, lvl)
+        for c in self.children:
+            c.explore(lvl + 1)
+
+    def get_children(self):
+        return self.children
+
+
+class KeyValueElementNode(Node):
+
+    def __init__(self, at, key, value):
+        Node.__init__(self, 'key-value', at)
+        self.key = key
+        self.value = value
+
+    def __str__(self):
+        return f"{self.key} : {self.value.msg}"
+
+    def explore(self, lvl=0):
+        Node.explore(self, lvl)
+        print(f"{'    ' * (lvl + 1)}{self.key}")
+        self.value.explore(lvl + 1)
+
+    def get_children(self):
+        # We skip the {} step in order to present directly the elements of {}
+        if type(self.value) == ListNode:
+            return self.value.get_children()
+        elif type(self.value) == LiteralNode:
+            return [] # no more dispay
+        else:
+            return [self.value]
+
+#-------------------------------------------------------------------------------
 
 class LexerJSON:
 
     def __init__(self):
         pass
 
-    def lex(self, content):
+    def lex(self, content, discard=None):
         res = []
         line = 0
-        column = 0
-        #print('|' + content + '|')
-        while column < len(content):
-            c = content[column]
-            #print(column, c)
+        index = 0
+        discard = discard if discard is not None else []
+        while index < len(content):
+            c = content[index]
             if c in ['{', '}', '[', ']', ',', ':']:
-                res.append(Token('separator', c, line, column))
+                res.append(Token('separator', c, line, index))
                 if c == ':' and len(res) > 1 and res[-2].kind == 'string':
                     res[-2].kind = 'key'
             elif c == '"':
                 s = '"'
-                j = column + 1
+                j = index + 1
                 while j < len(content):
                     s += content[j]
                     if content[j] == '"':
@@ -1083,89 +1353,64 @@ class LexerJSON:
                         elif j > 0 and content[j-1] != '\\':
                             break
                     j += 1
-                res.append(Token('string', s, line, column))
-                column += len(s) - 1
+                res.append(Token('string', s, line, index))
+                index += len(s) - 1
             elif c in ['\\r', '\\n']:
                 if len(content) > i+1 and content[i+1] in ['\\r', '\\n']:
-                    res.append(Token, 'newline', content[column, column+1], line, column)
-                    column += 1
+                    if 'newline' not in discard:
+                        res.append(Token, 'newline', content[index, index+1], line, index)
+                    index += 1
                 else:
-                    res.append(Token, 'newline', s, line, column)
+                    if 'newline' not in discard:
+                        res.append(Token, 'newline', s, line, index)
                 line += 1
             elif c in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
                 s = c
-                j = column + 1
+                j = index + 1
                 while j < len(content):
                     if content[j] not in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
                         break
                     s += content[j]
                     j += 1
-                res.append(Token('number', s, line, column))
-                column += len(s) - 1
+                res.append(Token('number', s, line, index))
+                index += len(s) - 1
             elif c.isalpha():
                 s = c
-                j = column + 1
+                j = index + 1
                 while j < len(content):
                     if not content[j].isalpha() and c not in ['_']:
                         break
                     s += content[j]
                     j += 1
                     if s in ['false', 'true']:
-                        res.append(Token('boolean', s, line, column))
-                column += len(s) - 1
+                        res.append(Token('boolean', s, line, index))
+                index += len(s) - 1
             elif c in [' ', '\t']:
                 pass
-            column += 1
-        #print(res)
+            index += 1
         return res
-
-LEXERS = {'json': LexerJSON}
 
 class Token:
 
-    def __init__(self, kind, value, line, column):
+    def __init__(self, kind, value, line, index):
         self.kind = kind
         self.value = value
         self.line = line
-        self.column = column
-        self.end = self.column + len(self.value)
+        self.index = index
+        self.end = self.index + len(self.value)
 
     def __repr__(self):
         return f"{self.value}:{self.kind}"
 
     def __str__(self):
-        return f"({self.value}:{self.kind}@{self.line,self.column}#{len(self.value)})"
+        return f"({self.value}:{self.kind}@{self.line,self.index}#{len(self.value)})"
 
-#-------------------------------------------------------------------------------
+LEXERS = {'json': LexerJSON}
+PARSERS = {'json': ParserJSON}
+
+#
+# Main
+#
 
 if __name__ == '__main__':
     Jyx()
-
-##        #self.treeview["columns"] = ("text",)
-##        self.treeview.column("#0", width=120)
-##        self.treeview.heading("#0", text="Nodes")
-##        #self.treeview.column("text", width=80)
-##        #self.treeview.heading("text", text="Tag")
-##        self.treeview.insert("", 0, text="First entry")
-##        if self.app.rc.found('Crystal_Clear_device_blockdevice16'):
-##            self.treeview.insert("", 1, text=" Second entry", image=self.app.rc.get_as_image('Crystal_Clear_device_blockdevice16'))
-##        else:
-##            self.treeview.insert("", 1, text=" Second entry")
-##        if self.app.rc.found('IconYellowCube16x19'):
-##            sub1 = self.treeview.insert("", 2, text=" Third entry", image=self.app.rc.get_as_image('IconYellowCube16x19'))
-##        else:
-##            sub1 = self.treeview.insert("", 2, text=" Third entry")
-##        if self.app.rc.found('IconBlueCube16x19'):
-##            self.treeview.insert(sub1, 0, text=" 2-1 Entry", image=self.app.rc.get_as_image('IconBlueCube16x19'))
-##        else:
-##            self.treeview.insert(sub1, 0, text=" 2-1 Entry")
-##        if self.app.rc.found('IconMagentaCube16x19'):
-##            self.treeview.insert(sub1, 1, text=" 2-2 Entry", image=self.app.rc.get_as_image('IconMagentaCube16x19'))
-##        else:
-##            self.treeview.insert(sub1, 1, text=" 2-2 Entry")
-##        # or
-##        self.treeview.insert("", 3, "sub2", text="Fourth entry")
-##        if self.app.rc.found('IconYellowCube16x19'):
-##            self.treeview.insert("sub2", 0, text=" 3-1 Entry", image=self.app.rc.get_as_image('IconYellowCube16x19'))
-##        else:
-##            self.treeview.insert("sub2", 0, text=" 3-1 Entry")
