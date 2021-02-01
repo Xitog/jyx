@@ -156,7 +156,7 @@ class Jyx:
     CLOSE_TAB = 8
     DATA_FILE_NAME = 'jyx.json'
     LAST_VALUES = 'last_values.json'
-    VERSION = '0.0.1'
+    VERSION = '0.0.2'
     
     def __init__(self):
         self.log = Logger(exit_on_error=False, info=Output.CONSOLE, 
