@@ -15,7 +15,7 @@ setup(
 
     author='Damien Gouteux',
     author_email='damien.gouteux@gmail.com',
-    url="https://xitog.github.io/dgx/index.html",
+    url="https://github.com/Xitog/jyx",
     maintainer='Damien Gouteux',
     maintainer_email='damien.gouteux@gmail.com',
     
