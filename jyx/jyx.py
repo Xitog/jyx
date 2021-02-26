@@ -9,6 +9,7 @@ from tkinter import ttk
 from tkinter import messagebox
 from tkinter import filedialog
 from tkinter import font
+from tkinter import simpledialog
 
 import json                   # for loading/saving options
 from datetime import datetime # for now()
@@ -41,7 +42,9 @@ DEFAULT_CONFIG = """{
             "open file"   : "Open file...",
             "save file"   : "Save file...",
             "filter all"  : "all files",
-            "file name"   : "myfile"
+            "file name"   : "myfile",
+            "find"        : "Find the pattern:",
+            "notfound"    : ": text not found."
         }
     },
     "menu": {
@@ -64,6 +67,8 @@ DEFAULT_CONFIG = """{
             "paste"       : "Paste",
             "select all"  : "Select all",
             "clear"       : "Clear",
+            "search"      : "Search",
+            "find"        : "Find...",
             "options"     : "Options",
             "tongues"     : "Tongues",
             "confirm"     : "Confirm before exit",
@@ -437,6 +442,14 @@ class Jyx:
         stdout = cmd.stdout.decode() # from bytes to str
         print(stdout)
 
+    def search(self, event=None):
+        tongue = self.options['tongue'].get()
+        target = simpledialog.askstring(self.data['menu'][tongue]['search'], self.data['messages'][tongue]['find'])
+        if target:
+            res = self.notebook.current().find(target)
+            if not res:
+                messagebox.showwarning(self.data['menu'][tongue]['search'], target + self.data['messages'][tongue]['notfound'])
+
     def about(self, event=None):
         tongue = self.options['tongue'].get()
         title = self.data['menu'][tongue]['about']
@@ -476,6 +489,7 @@ class JyxMenu(tk.Menu):
 
         self.entryconfig(data['menu'][old]['file'], label=data['menu'][new]['file'])
         self.entryconfig(data['menu'][old]['edit'], label=data['menu'][new]['edit'])
+        self.entryconfig(data['menu'][old]['search'], label=data['menu'][new]['search'])
         self.entryconfig(data['menu'][old]['options'], label=data['menu'][new]['options'])
         self.entryconfig(data['menu'][old]['languages'], label=data['menu'][new]['languages'])
         self.entryconfig(data['menu'][old]['help'], label=data['menu'][new]['help'])
@@ -496,6 +510,8 @@ class JyxMenu(tk.Menu):
         self.edit_menu.entryconfig(data['menu'][old]['paste'], label=data['menu'][new]['paste'])
         self.edit_menu.entryconfig(data['menu'][old]['select all'], label=data['menu'][new]['select all'])
         self.edit_menu.entryconfig(data['menu'][old]['clear'], label=data['menu'][new]['clear'])
+
+        self.search_menu.entryconfig(data['menu'][old]['find'], label=data['menu'][new]['find'])
 
         self.options_menu.entryconfig(data['menu'][old]['tongues'], label=data['menu'][new]['tongues'])
         self.options_menu.entryconfig(data['menu'][old]['confirm'], label=data['menu'][new]['confirm'])
@@ -565,6 +581,12 @@ class JyxMenu(tk.Menu):
         self.edit_menu.add_separator()
         self.edit_menu.add_command(label=data['menu'][tongue]['clear'],
                                    command=lambda: self.jyx.notebook.send('clear'))
+
+        self.search_menu = tk.Menu(self, tearoff=0)
+        self.add_cascade(label=data['menu'][tongue]['search'], menu=self.search_menu)
+        self.search_menu.add_command(label=data['menu'][tongue]['find'],
+                                     command=self.jyx.search,
+                                     accelerator="Ctrl+F")
 
         self.options_menu = tk.Menu(self, tearoff=0)
         self.add_cascade(label=data['menu'][tongue]['options'], menu=self.options_menu)
@@ -823,6 +845,7 @@ class JyxNote:
             self.text.bind('<Control-Key-v>', self.paste)
             self.text.bind('<Control-Key-p>', self.notebook.jyx.treeview.rebuild)
             self.text.bind('<Control-Key-s>', self.notebook.jyx.save)
+            self.text.bind('<Control-Key-f>', self.notebook.jyx.search)
 
         # Status bas
         jyx = self.notebook.jyx
@@ -992,6 +1015,15 @@ class JyxNote:
         self.select_all(event)
         self.selection_delete()
 
+    def find(self, pattern):
+        res = self.text.search(pattern, tk.INSERT, forwards=True)
+        if not res:
+            res = self.text.search(pattern, '1.0', forwards=True)
+        if res:
+            self.text.see(res)
+            return True
+        return False
+
     def control_pressed(self, state):
         return state in [JyxNote.MOD_CONTROL_LIN, JyxNote.MOD_CONTROL_WIN]
 
@@ -1039,6 +1071,8 @@ class JyxNote:
                 self.notebook.jyx.treeview.rebuild()
             elif event.keysym == 's':
                 self.notebook.jyx.save()
+            elif event.keysym == 'f':
+                self.notebook.jyx.search()
             else:
                 self.notebook.jyx.log.info(f'Event not handled: {event.keysym} with state={event.state}')
             return 'break'

@@ -15,7 +15,9 @@
             "open file"   : "Ouvrir un fichier...",
             "save file"   : "Sauvegarder le fichier...",
             "filter all"  : "tous les fichiers",
-            "file name"   : "monfichier"
+            "file name"   : "monfichier",
+            "find"        : "Chercher le motif :",
+            "notfound"    : ": texte non trouvé."
         },
         "en" : {
             "started"     : "Started",
@@ -25,7 +27,9 @@
             "open file"   : "Open file...",
             "save file"   : "Save file...",
             "filter all"  : "all files",
-            "file name"   : "myfile"
+            "file name"   : "myfile",
+            "find"        : "Find the pattern:",
+            "notfound"    : ": text not found."
         }
     },
     "menu": {
@@ -40,7 +44,7 @@
             "run"         : "Exécuter",
             "close tab"   : "Fermer onglet",
             "exit"        : "Quitter",
-            "edit"        : "Edition",
+            "edit"        : "Édition",
             "undo"        : "Annuler",
             "redo"        : "Rétablir",
             "cut"         : "Couper",
@@ -48,6 +52,8 @@
             "paste"       : "Coller",
             "select all"  : "Sélectionner tout",
             "clear"       : "Effacer tout",
+            "search"      : "Recherche",
+            "find"        : "Rechercher...",
             "options"     : "Options",
             "tongues"     : "Langues",
             "confirm"     : "Confirmer avant de quitter",
@@ -77,6 +83,8 @@
             "paste"       : "Paste",
             "select all"  : "Select all",
             "clear"       : "Clear",
+            "search"      : "Search",
+            "find"        : "Find...",
             "options"     : "Options",
             "tongues"     : "Tongues",
             "confirm"     : "Confirm before exit",
