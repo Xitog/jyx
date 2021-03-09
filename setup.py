@@ -1,8 +1,18 @@
+#-------------------------------------------------------------------------------
+# Setup file for Jyx
+#-------------------------------------------------------------------------------
+# Use : python3 setup.py sdist bdist_wheel
+# for building the distribution
+# Use : twine upload dist/*
+# to upload to pypi
+# You can after delete safely (rm -f) "jyx.egg-info" "build" "dist" directories
+#-------------------------------------------------------------------------------
+
 from setuptools import setup
 import jyx
 from os.path import join
 
-f = open(join('jyx', 'readme.md'), mode='r', encoding='utf8')
+f = open('README.md', mode='r', encoding='utf8')
 long_desc = f.read()
 f.close()
 
@@ -38,4 +48,7 @@ setup(
     packages=['jyx'],  #same as name
     python_requires='>=3.5',
     #install_requires = ['xxx'],
+    extras_require = {
+        'weyland':  ["weyland>=0.0.8"]
+    }
 )

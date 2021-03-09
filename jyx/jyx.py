@@ -20,6 +20,12 @@ import subprocess             # for run
 import stat                   # for run
 import platform               # for knowing where we are in handling of ctrl
 from collections import deque # for parsing
+import sys                    # only to test if weyland is imported
+
+try:
+    import weyland
+except ModuleNotFoundError:
+    pass
 
 #
 # Globals and constants
@@ -163,11 +169,16 @@ class Jyx:
     CLOSE_TAB = 8
     DATA_FILE_NAME = 'jyx.json'
     LAST_VALUES = 'last_values.json'
-    VERSION = '0.0.3'
+    VERSION = '0.0.4'
     
     def __init__(self):
         self.log = Logger(exit_on_error=False, info=Output.CONSOLE, 
                           warn=Output.POPUP, error=Output.POPUP)
+        # Weyland
+        if 'weyland' not in sys.modules:
+            self.log.info('Module Weyland lexer and parser not found.')
+        else:
+            self.log.info(f'Module Weyland found in version: {weyland.__version__}')
         # Path
         home = os.path.expanduser("~")
         self.jyx_dir = os.path.join(home, '.jyx')
@@ -1155,6 +1166,7 @@ class JyxNote:
         if len(text.tag_ranges('sel')) > 0:
             self.selection_delete()
         self.write(content)
+        # if something happen in self.tag, return 'break' is not called and character is inserted twice!
         self.tag(self.text.index("insert linestart"), self.text.index("insert lineend"))
         text.see(tk.INSERT)
         self.notebook.jyx.update_status()
@@ -1174,7 +1186,8 @@ class JyxNote:
     # Tag
     #
     def tag(self, start='1.0', end=tk.END):
-        if not self.notebook.jyx.has(f"languages.{self.lang}.support", "tokenize") or self.lang not in LEXERS:
+        #if not self.notebook.jyx.has(f"languages.{self.lang}.support", "tokenize") or self.lang not in LEXERS:
+        if self.lang not in weyland.LANGUAGES or self.lang not in LEXERS:
             return
         # Clear all tags
         for tag in self.text.tag_names():
@@ -1182,11 +1195,23 @@ class JyxNote:
                 continue # sans cela, bug du selection_delete qui ne supprime pas le 1er caractere ! XXX
             self.text.tag_remove(tag, start, end)
         content = self.text.get(start, end)
-        res = LEXERS[self.lang]().lex(content)
-        for t in res:
-            t_start = self.text.index("%s+%d chars" % (start, t.index))
-            t_end = self.text.index("%s+%d chars" % (start, t.end))
-            self.text.tag_add(t.kind, t_start, t_end)
+        try:
+            tokens = weyland.Lexer(weyland.LANGUAGES[self.lang], discards=['blank', 'newline']).lex(content)
+            res = LEXERS[self.lang]().lex(content)
+            print(len(tokens), 'vs', len(res))
+            for i in range(min(len(tokens), len(res))):
+                t1 = tokens[i]
+                t2 = res[i]
+                #if t1.first == t2.index and t1.last + 1 == t2.end and t1.typ == t2.kind:
+                #    pass
+                #else:
+                #    print(i, '.  ', t1.first, '-', t1.last, '   ', t2.index, '-', t2.end, '   ', t1.typ, 'vs', t2.kind) 
+                t_start = self.text.index("%s+%d chars" % (start, t1.first))
+                t_end = self.text.index("%s+%d chars" % (start, t1.last+1))
+                self.text.tag_add(t1.typ, t_start, t_end)
+        except:
+            print("Incomplete input")
+        return
 
 #-------------------------------------------------------------------------------
 
