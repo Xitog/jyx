@@ -5,7 +5,7 @@
 # for building the distribution
 # Use : twine upload dist/*
 # to upload to pypi
-# You can after delete safely (rm -f) "jyx.egg-info" "build" "dist" directories
+# You can after delete safely (rm -rf) "jyx.egg-info" "build" "dist" directories
 #-------------------------------------------------------------------------------
 
 from setuptools import setup
