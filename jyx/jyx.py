@@ -465,7 +465,10 @@ class Jyx:
         tongue = self.options['tongue'].get()
         title = self.data['menu'][tongue]['about']
         msg = self.data['messages'][tongue]['about_msg']
-        messagebox.showinfo(title, f"{Jyx.TITLE} - {Jyx.VERSION}\n{msg}\nDamien Gouteux\n2017 - {datetime.now().year}\n")
+        full_msg = f"{Jyx.TITLE} - {Jyx.VERSION}\n{msg}\nDamien Gouteux\n2017 - {datetime.now().year}\n"
+        if 'weyland' in sys.modules:
+            full_msg += f"+Weyland {weyland.__version__}"
+        messagebox.showinfo(title, full_msg)
 
 
 class JyxOption:
